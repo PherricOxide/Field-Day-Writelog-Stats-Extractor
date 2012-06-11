@@ -66,6 +66,7 @@ proc ExportAscii {} {
 proc parseAsciiExport {} {
     array unset ::bandModeCounts
     array unset ::operaterCounts
+    array unset ::gotaOpCounts
     array unset ::operaterPointCounts
     # Clear past data
     foreach band $::ssbBands {set ::bandModeCounts($band) 0}
@@ -78,9 +79,10 @@ proc parseAsciiExport {} {
     set ::cwContacts 0
     set ::ssbContacts 0
     set ::totalContacts 0
+    set ::totalGotaContacts 0
     set ::totalPoints 0
 
-
+    set ::contactTimes [list]
     foreach line $data {
         if {$line == ""} {continue}
         set line [split $line ","]
@@ -93,13 +95,30 @@ proc parseAsciiExport {} {
         set contactClass [lindex $line 5]
         set contactLocation [lindex $line 6]
         set points [lindex $line 7]
+        set station [lindex $line 11]
+        
 
         # Skip dupes and deleted contacts
-        if {$points == 0} {
-            continue;
+        if {$points == 0} {continue;}
+        
+        # 06/25/11 18:02
+        set secondsTime [clock scan "$date $ctime" -format "%m/%d/%y %H:%M"]
+        if {$secondsTime != 0} {lappend ::contactTimes $secondsTime}
+
+        incr ::totalPoints $points
+        incr ::totalContacts 1
+        
+        if {$mode == "SSB"} {
+            incr ::ssbContacts 1
+        } elseif {$mode == "CW"} {
+            incr ::codeContacts 1
+        } else {
+            logit "ERROR: Unkown QSO mode: $ mode"
         }
 
-        incr totalPoints $points
+        if {$station == "N"} {
+            incr ::totalGotaContacts
+        }
         
         set op [lindex $line 9]
 
@@ -115,7 +134,15 @@ proc parseAsciiExport {} {
         if {[info exists ::operaterCounts($op)]} {
             set ::operaterCounts($op) [expr $::operaterCounts($op) + 1]
         } else {
-            set ::operaterCounts($op) 0
+            set ::operaterCounts($op) 1
+        }
+        
+        if {$station == "N"} {
+            if {[info exists ::gotaOpCounts($op)]} {
+                set ::gotaOpCounts($op) [expr $::gotaOpCounts($op) + 1]
+            } else {
+                set ::gotaOpCounts($op) 1
+            }
         }
 
 
@@ -126,7 +153,6 @@ proc parseAsciiExport {} {
         }
     }
 
-    puts "Points $totalPoints"
 }
 
 proc logit msg {
@@ -138,6 +164,8 @@ proc DrawStats {} {
     global codeBandCountsWin
     global ssbBandCountsWin
     global opWin
+    global gotaOpWin
+    global contactSpeedWin
     global opPointWin
     global summaryWin
 
@@ -146,7 +174,8 @@ proc DrawStats {} {
     destroy $codeBandCountsWin
     toplevel $codeBandCountsWin
     set i 0 
-    
+   
+    set codeBandList [list]
     foreach band $::codeBands {lappend codeBandList [list $band $::bandModeCounts($band)]}
     set codeBandList [lsort -index 1 -decreasing -integer $codeBandList]
     foreach item $codeBandList {
@@ -162,7 +191,8 @@ proc DrawStats {} {
     destroy $ssbBandCountsWin
     toplevel $ssbBandCountsWin
     set i 0
-   
+  
+    set ssbBandList [list]
     foreach band $::ssbBands {lappend ssbBandList [list $band $::bandModeCounts($band)]}
     set ssbBandList [lsort -index 1 -decreasing -integer $ssbBandList]
     foreach item $ssbBandList {
@@ -179,17 +209,37 @@ proc DrawStats {} {
     destroy $opWin
     toplevel $opWin
     set i 0
-    
+   
+    set opList [list]
     foreach op [array names ::operaterCounts] {lappend opList [list $op $::operaterCounts($op)]}
     set opList [lsort -index 1 -decreasing -integer $opList]
     foreach item $opList {
         set op [lindex $item 0]
-        label $opWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme
+        label $opWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
         label $opWin.op$op -text "$op" {*}$labelTheme
         label $opWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
         grid $opWin.opRank$op -column 0 -row $i
         grid $opWin.op$op -column 1 -row $i
         grid $opWin.op$op\count -column 2 -row $i
+
+        incr i
+    }
+    
+    destroy $gotaOpWin
+    toplevel $gotaOpWin
+    set i 0
+   
+    set gotaOpList [list]
+    foreach op [array names ::gotaOpCounts] {lappend gotaOpList [list $op $::gotaOpCounts($op)]}
+    set gotaOpList [lsort -index 1 -decreasing -integer $gotaOpList]
+    foreach item $gotaOpList {
+        set op [lindex $item 0]
+        label $gotaOpWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
+        label $gotaOpWin.op$op -text "$op" {*}$labelTheme
+        label $gotaOpWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
+        grid $gotaOpWin.opRank$op -column 0 -row $i
+        grid $gotaOpWin.op$op -column 1 -row $i
+        grid $gotaOpWin.op$op\count -column 2 -row $i
 
         incr i
     }
@@ -202,7 +252,7 @@ proc DrawStats {} {
     set opPointList [lsort -index 1 -decreasing -integer $opPointList]
     foreach item $opPointList {
         set op [lindex $item 0]
-        label $opPointWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme
+        label $opPointWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
         label $opPointWin.op$op -text "$op" {*}$labelTheme
         label $opPointWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
         grid $opPointWin.opRank$op -column 0 -row $i
@@ -212,16 +262,52 @@ proc DrawStats {} {
         incr i
     }
     
-    
     destroy $summaryWin
     toplevel $summaryWin
+    pack [label $summaryWin.lcodeContacts -text "CW QSOs: $::codeContacts" {*}$::labelTheme -width 150]
+    pack [label $summaryWin.lssbContacts -text "SSB QSOs: $::ssbContacts" {*}$::labelTheme -width 150]
+    pack [label $summaryWin.lgotaContacts -text "GOTA QSOs: $::totalGotaContacts" {*}$::labelTheme -width 150]
+    pack [label $summaryWin.lspacer -text "" {*}$::labelTheme -width 150]
+    pack [label $summaryWin.ltotalContacts -text "All QSOs: $::totalContacts" {*}$::labelTheme -width 150]
+    pack [label $summaryWin.ltotalPoints -text "QSO Points: $::totalPoints" {*}$::labelTheme -width 150]
     
+    wm geometry $opWin 200x700+0+0 
+    wm geometry $opPointWin 200x700+210+0
+    wm geometry $ssbBandCountsWin 150x175+420+0 
+    wm geometry $codeBandCountsWin 150x175+420+210
+    wm geometry $gotaOpWin 200x200+420+420
+    wm geometry $summaryWin 200x175+820+0
+    update
+
+    destroy $contactSpeedWin
+    toplevel $contactSpeedWin
     
-    wm geometry $opWin 235x700+0+0 
-    wm geometry $opPointWin 235x700+250+0 
-    wm geometry $ssbBandCountsWin 150x180+500+0 
-    wm geometry $codeBandCountsWin 150x180+660+0
-    wm geometry $summaryWin 150x200+820+0
+    set rateSplit 350
+    canvas $contactSpeedWin.c -bg white -width $rateSplit -height 200
+
+    array set timpMap {}
+    for {set i 0} {$i <= $rateSplit} {incr i} {
+       set timeMap($i) "0"
+    }
+
+    set maxRate 0
+    if {[llength $::contactTimes] > 1} {
+        set divSize [expr {([lindex $::contactTimes end] - [lindex $::contactTimes 0]) / (1.0*$rateSplit)}]
+        foreach stamp $::contactTimes {
+            set window [expr int(($stamp - [lindex ($::contactTimes 0])) / $divSize)]
+            incr timeMap($window)
+            if {$timeMap($window) > $maxRate} {set maxRate $timeMap($window)}
+        }
+       
+        for {set i 0} {$i < $rateSplit} {incr i} {
+            set y [expr (1.0*$timeMap($i))/$maxRate * 200]
+            $contactSpeedWin.c create line $i 200 $i [expr 200 -$y] -fill blue
+        }
+    }
+ 
+    pack $contactSpeedWin.c
+      
+    wm geometry $contactSpeedWin ${rateSplit}x200+625+350
 }
 
     
@@ -230,12 +316,14 @@ set ssbBands [list "2 SSB" "6 SSB" "10 SSB" "15 SSB" "20 SSB" "40 SSB" "80 SSB"]
 array set bandModeCounts {}
 array set operaterCounts {}
 array set operaterPointCounts {}
-
+array set gotaOpCounts {}
 
 set ssbBandCountsWin .ssbBandCounts
 set codeBandCountsWin .codeBandCounts
 set opWin .operatorQSOWindow
+set gotaOpWin .gotaOpQSOWindow
 set opPointWin .operatorPointWindow
+set contactSpeedWin .speedWin
 set summaryWin .summaryWindow
 
 wm withdraw .
@@ -246,8 +334,12 @@ toplevel $opWin
 toplevel $opPointWin
 toplevel $summaryWin
 
-    #ExportAscii
+proc go {} {
+    ExportAscii
     parseAsciiExport
     DrawStats
     update
-    after 4000
+    after 10000 go
+}
+
+go
