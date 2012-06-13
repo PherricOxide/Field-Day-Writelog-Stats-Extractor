@@ -6,7 +6,7 @@ set writelogProcessName {WriteL32.exe}
 
 set labelTheme [list -relief raised -width 8 -font {-family {MS Sans Serif Bold} -size 12}]
 
-proc GetBand frequency {
+proc GetBand {frequency} {
     if {$frequency >= 1.8 && $frequency <= 2.0} {
         return "160"
     } elseif {$frequency >= 3.5 && $frequency <= 4.0} {
@@ -36,7 +36,7 @@ proc ExportAscii {} {
         return -1
     }
 
-    set windowHandle [twapi::find_windows -pids $processId -toplevel true -visible true]
+    set windowHandle [twapi::find_windows -text {*WriteLog} -match glob -pids $processId -toplevel true -visible true]
     if {[llength $windowHandle] != 1} {
         logit "ERROR: Unable to find window handle for writelog! Leaving export"
         return -1
@@ -277,6 +277,15 @@ proc DrawStats {} {
     wm geometry $codeBandCountsWin 150x175+420+210
     wm geometry $gotaOpWin 200x200+420+420
     wm geometry $summaryWin 200x175+820+0
+
+
+    wm title $opWin "QSOs Per Op"
+    wm title $opPointWin "Points Per Op"
+    wm title $ssbBandCountsWin "SSB QSOs Per Band"
+    wm title $codeBandCountsWin "CW QSOs Per Band"
+    wm title $gotaOpWin "QSOs Per GOTA Op"
+    wm title $summaryWin "Summary"
+
     update
 
     destroy $contactSpeedWin
