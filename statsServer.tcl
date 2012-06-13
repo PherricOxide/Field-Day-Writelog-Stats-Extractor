@@ -1,10 +1,37 @@
 package require twapi
 package require Tk
 
+package require ip
+package require udp
+
 set asciiExportPath {C:/engineering/fieldDayStatsTool/asciiDump.txt}
 set writelogProcessName {WriteL32.exe}
+set gotaLetter {N}
+
+set config(station,A) "HF1"
+set config(station,B) "HF2"
+set config(station,N) "GOTA"
+set config(station,S) "STATS"
+set config(station,V) "VHF"
 
 set labelTheme [list -relief raised -width 8 -font {-family {MS Sans Serif Bold} -size 12}]
+
+foreach ip [twapi::get_ip_addresses] {
+	if {![::ip::equal 127.0.0.1 $ip]} {set config(ip) $ip; unset ip; break}
+}
+
+if {![info exists config(ip)]} {
+	set config(ip) 127.0.0.1
+}
+
+proc ::incr { var {increment 1}} {
+	::upvar 1 $var localVar
+	if {[::info exists localVar]} {
+		set localVar [::expr {$localVar + $increment}]
+	} else {
+		set localVar $increment
+	}
+}
 
 proc GetBand {frequency} {
     if {$frequency >= 1.8 && $frequency <= 2.0} {
@@ -26,6 +53,28 @@ proc GetBand {frequency} {
     } else {
         return "0"
     }
+}
+
+proc Broadcast { msg } {
+	set sock [udp_open]
+	set broadcast [::ip::broadcastAddress "${::config(ip)}/24"]
+	fconfigure $sock -buffering none -blocking false -broadcast 1 -remote [list $broadcast 599]
+	puts -nonewline $sock $msg
+	close $sock
+}
+
+proc SendNetworkUpdates {args} {
+	Broadcast {status reset}
+        foreach station [array names ::stationCounts] {
+	    Broadcast [list station $::config(station,$station) $::stationCounts($station) $::totalContacts]
+        }
+
+        foreach stationOp [array names ::stationOpCounts] {
+            lassign [split $stationOp ","] station operator
+            Broadcast [list operator $operator $::config(station,$station) $::stationOpCounts($stationOp) $::totalContacts]
+        }
+	
+        Broadcast "status complete [clock seconds]"
 }
 
 proc ExportAscii {} {
@@ -66,7 +115,8 @@ proc ExportAscii {} {
 proc parseAsciiExport {} {
     array unset ::bandModeCounts
     array unset ::operaterCounts
-    array unset ::gotaOpCounts
+    array unset ::stationCounts
+    array unset ::stationOpCounts
     array unset ::operaterPointCounts
     # Clear past data
     foreach band $::ssbBands {set ::bandModeCounts($band) 0}
@@ -129,28 +179,12 @@ proc parseAsciiExport {} {
         }
 
         set key "$band $mode"
-        set ::bandModeCounts($key) [expr $::bandModeCounts($key) + 1]
-        
-        if {[info exists ::operaterCounts($op)]} {
-            set ::operaterCounts($op) [expr $::operaterCounts($op) + 1]
-        } else {
-            set ::operaterCounts($op) 1
-        }
-        
-        if {$station == "N"} {
-            if {[info exists ::gotaOpCounts($op)]} {
-                set ::gotaOpCounts($op) [expr $::gotaOpCounts($op) + 1]
-            } else {
-                set ::gotaOpCounts($op) 1
-            }
-        }
-
-
-        if {[info exists ::operaterPointCounts($op)]} {
-            set ::operaterPointCounts($op) [expr $::operaterPointCounts($op) + $points]
-        } else {
-            set ::operaterPointCounts($op) $points
-        }
+        set ::bandModeCounts($key) [expr {$::bandModeCounts($key) + 1}]
+    
+        incr ::stationOpCounts($station,$op) 1
+        incr ::operaterCounts($op) 1 
+        incr ::stationCounts($station) 1
+        incr ::operaterPointCounts($op) $points
     }
 
 }
@@ -215,7 +249,7 @@ proc DrawStats {} {
     set opList [lsort -index 1 -decreasing -integer $opList]
     foreach item $opList {
         set op [lindex $item 0]
-        label $opWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
+        label $opWin.opRank$op -text "[expr {$i + 1}]" {*}$labelTheme -width 3
         label $opWin.op$op -text "$op" {*}$labelTheme
         label $opWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
         grid $opWin.opRank$op -column 0 -row $i
@@ -230,11 +264,16 @@ proc DrawStats {} {
     set i 0
    
     set gotaOpList [list]
-    foreach op [array names ::gotaOpCounts] {lappend gotaOpList [list $op $::gotaOpCounts($op)]}
+    foreach op [array names ::operaterCounts] {
+        if [info exists ::stationOpCounts($::gotaLetter,$op)] {
+            lappend gotaOpList [list $op $::stationOpCounts($::gotaLetter,$op)]
+        }
+    }
+
     set gotaOpList [lsort -index 1 -decreasing -integer $gotaOpList]
     foreach item $gotaOpList {
         set op [lindex $item 0]
-        label $gotaOpWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
+        label $gotaOpWin.opRank$op -text "[expr {$i + 1}]" {*}$labelTheme -width 3
         label $gotaOpWin.op$op -text "$op" {*}$labelTheme
         label $gotaOpWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
         grid $gotaOpWin.opRank$op -column 0 -row $i
@@ -252,7 +291,7 @@ proc DrawStats {} {
     set opPointList [lsort -index 1 -decreasing -integer $opPointList]
     foreach item $opPointList {
         set op [lindex $item 0]
-        label $opPointWin.opRank$op -text "[expr $i + 1]" {*}$labelTheme -width 3
+        label $opPointWin.opRank$op -text "[expr {$i + 1}]" {*}$labelTheme -width 3
         label $opPointWin.op$op -text "$op" {*}$labelTheme
         label $opPointWin.op$op\count -text "[lindex $item 1]" {*}$labelTheme
         grid $opPointWin.opRank$op -column 0 -row $i
@@ -302,15 +341,17 @@ proc DrawStats {} {
     set maxRate 0
     if {[llength $::contactTimes] > 1} {
         set divSize [expr {([lindex $::contactTimes end] - [lindex $::contactTimes 0]) / (1.0*$rateSplit)}]
+        set timeStart [lindex $::contactTimes 0]
+
         foreach stamp $::contactTimes {
-            set window [expr int(($stamp - [lindex ($::contactTimes 0])) / $divSize)]
+            set window [expr {int(($stamp - $timeStart) / $divSize)}]
             incr timeMap($window)
             if {$timeMap($window) > $maxRate} {set maxRate $timeMap($window)}
         }
        
         for {set i 0} {$i < $rateSplit} {incr i} {
-            set y [expr (1.0*$timeMap($i))/$maxRate * 200]
-            $contactSpeedWin.c create line $i 200 $i [expr 200 -$y] -fill blue
+            set y [expr {(1.0*$timeMap($i))/$maxRate * 200}]
+            $contactSpeedWin.c create line $i 200 $i [expr {200 -$y}] -fill blue
         }
     }
  
@@ -322,8 +363,11 @@ proc DrawStats {} {
     
 set codeBands [list "2 CW" "6 CW" "10 CW" "15 CW" "20 CW" "40 CW" "80 CW"]
 set ssbBands [list "2 SSB" "6 SSB" "10 SSB" "15 SSB" "20 SSB" "40 SSB" "80 SSB"]
+
 array set bandModeCounts {}
 array set operaterCounts {}
+array set stationCounts {}
+array set stationOpCounts {}
 array set operaterPointCounts {}
 array set gotaOpCounts {}
 
@@ -343,10 +387,15 @@ toplevel $opWin
 toplevel $opPointWin
 toplevel $summaryWin
 
+set sock [udp_open 599]
+fconfigure $sock -buffering none -blocking false -broadcast 1
+#fileevent $sock readable [list HandleMessage $sock]
+
 proc go {} {
     ExportAscii
     parseAsciiExport
     DrawStats
+    SendNetworkUpdates
     update
     after 10000 go
 }
