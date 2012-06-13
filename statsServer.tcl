@@ -98,18 +98,18 @@ proc ExportAscii {} {
     # Pull up the writelog window
     twapi::maximize_window $windowHandle
     twapi::set_foreground_window $windowHandle
-    after 500
+    after 200
    
     # Make sure ctrl + a is set as writelog shortcut for FileExportASCIICommaDelimited
     twapi::send_keys "^a"
-    after 500
+    after 200
 
     # Type in the file path in the dialog box and hit enter
     twapi::send_keys [file nativename $::asciiExportPath]
     twapi::send_keys "~"
     
     twapi::minimize_window $windowHandle
-    after 1000
+    after 500
 }
 
 proc parseAsciiExport {} {
