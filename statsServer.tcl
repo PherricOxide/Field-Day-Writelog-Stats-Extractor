@@ -76,8 +76,8 @@ proc parseAsciiExport {} {
     set data [split [read $fh] "\n"]
     close $fh
 
-    set ::cwContacts 0
     set ::ssbContacts 0
+    set ::codeContacts 0
     set ::totalContacts 0
     set ::totalGotaContacts 0
     set ::totalPoints 0
